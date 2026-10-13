@@ -16,7 +16,7 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 import { fileURLToPath, pathToFileURL } from "url";
-import { EdgeTTS } from "edge-tts-universal";
+import { SYNTHESIS_HOSTS, synthesizeSpeech } from "./edgeSpeech.js";
 import {
   exportUserManagedPetBundles,
   getCodexPetCatalog,
@@ -178,13 +178,14 @@ const synthesisQueue = [];
 // immersion extension also asks for German.
 const MAX_CONCURRENT_SYNTHESES = 3;
 let activeSyntheses = 0;
-// The Edge websocket handshake can fail without ever settling the library's
-// synthesize() promise (its "open" wait has no error path). An unsettled
-// synthesis would leak its slot and poison pendingSynthesis for that phrase
-// forever — after a couple of those, only cached audio still plays and every
-// new German clip goes silent until restart. The deadline turns a hang into
-// an error the retry and the slot bookkeeping can actually see.
-const SYNTHESIS_TIMEOUT_MS = 20_000;
+// A refused handshake now fails in a fifth of a second (see edgeSpeech.js), so
+// trying again straight away is cheap, and it is how a clip survives a service
+// that turns away a share of connections at random. The attempts alternate
+// between hosts, so one that has stopped answering costs one try, not all.
+// Stop starting new ones once the app's own fetch is close to giving up: it
+// waits nine seconds, and a clip that arrives after that is never heard.
+const SYNTHESIS_MAX_ATTEMPTS = 8;
+const SYNTHESIS_BUDGET_MS = 8_000;
 
 function cacheGet(key) {
   const buf = cache.get(key);
@@ -253,39 +254,34 @@ export function pronunciationRateFor(text, voice, requestedRate) {
   return percentage <= -10 ? rate : "-10%";
 }
 
-async function synthesizeWithDeadline(text, voice, rate) {
-  // A fresh EdgeTTS per attempt means a fresh websocket and freshly minted
-  // auth token — retrying on the same dead connection can never recover.
-  const tts = new EdgeTTS(text, voice, { rate, volume: "+0%", pitch: "+0Hz" });
-  let timer;
-  try {
-    const result = await Promise.race([
-      tts.synthesize(),
-      new Promise((_, reject) => {
-        timer = setTimeout(() => reject(new Error("tts synthesis timed out")), SYNTHESIS_TIMEOUT_MS);
-      }),
-    ]);
-    const buf = Buffer.from(await result.audio.arrayBuffer());
-    if (!buf.byteLength) throw new Error("tts returned empty audio");
-    return buf;
-  } finally {
-    clearTimeout(timer);
+/** Index of the host that answered last, so the next clip starts there. */
+let preferredHost = 0;
+
+async function synthesizeWithRetries(text, voice, rate) {
+  const started = Date.now();
+  let lastError;
+  for (let attempt = 0; attempt < SYNTHESIS_MAX_ATTEMPTS; attempt += 1) {
+    if (attempt > 0 && Date.now() - started > SYNTHESIS_BUDGET_MS) break;
+    // Every attempt is a fresh connection with a freshly minted token.
+    const host = (preferredHost + attempt) % SYNTHESIS_HOSTS.length;
+    try {
+      const buf = await synthesizeSpeech(text, voice, rate, SYNTHESIS_HOSTS[host]);
+      preferredHost = host;
+      return buf;
+    } catch (error) {
+      lastError = error;
+    }
   }
+  throw lastError ?? new Error("tts synthesis failed");
 }
 
 function synthesizeOnce(key, text, voice, rate) {
   const pending = pendingSynthesis.get(key);
   if (pending) return pending;
 
+  // Failures surface to the route as a 502 instead of wedging the pipeline.
   const promise = withSynthesisSlot(async () => {
-    let buf;
-    try {
-      buf = await synthesizeWithDeadline(text, voice, rate);
-    } catch {
-      // One retry on a brand-new connection; a second failure surfaces to the
-      // route as a 502 instead of wedging the pipeline.
-      buf = await synthesizeWithDeadline(text, voice, rate);
-    }
+    const buf = await synthesizeWithRetries(text, voice, rate);
     cacheSet(key, buf);
     return buf;
   });
