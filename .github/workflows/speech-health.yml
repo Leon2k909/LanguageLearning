@@ -1,0 +1,92 @@
+# Watches the live speech service the app synthesises every clip through.
+#
+# Those hosts belong to Microsoft and change without notice. When the original
+# one began refusing handshakes in October 2026, nothing here noticed: the
+# offline gate proves the client copes with a refusal, but it cannot see the
+# real service, and the first sign was the voice arriving late in the app.
+#
+# Every six hours this times real handshakes (scripts/probe-tts-hosts.mjs).
+# An unhealthy result opens a single "speech-outage" issue, mentioning the
+# repository owner so it arrives as an email; while the outage lasts, later
+# runs refresh that issue's report instead of piling up comments. The first
+# healthy run afterwards closes it.
+#
+# Caveat: runners sit in GitHub's US regions, and refusals have been regional
+# before (the original host failed in the UK and France while still answering
+# in the US). A quiet tracker is good evidence, not proof.
+name: speech-health
+
+on:
+  schedule:
+    - cron: "23 */6 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: speech-health
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+      LABEL: speech-outage
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # The speech client needs only ws; the production set is four packages
+      # and skips Electron entirely.
+      - name: Install the speech client's dependencies
+        run: npm ci --omit=dev --ignore-scripts
+
+      - name: Time handshakes against every speech host
+        id: probe
+        continue-on-error: true
+        run: node scripts/probe-tts-hosts.mjs --report speech-report.md
+
+      - name: Open or refresh the outage issue
+        if: steps.probe.outcome == 'failure'
+        shell: bash
+        run: |
+          [ -s speech-report.md ] || printf '## Speech probe failed\n\nThe probe produced no report; see the run log.\n' > speech-report.md
+          {
+            cat speech-report.md
+            printf '\nLast measured: %s · [run log](%s)\n' "$(date -u '+%Y-%m-%d %H:%M UTC')" "$RUN_URL"
+            printf '\nThis issue closes itself on the first healthy probe.\n\ncc @%s\n' "${{ github.repository_owner }}"
+          } > issue-body.md
+
+          gh label create "$LABEL" --color B60205 \
+            --description "The live speech service is refusing or failing synthesis" --force
+          existing="$(gh issue list --label "$LABEL" --state open --json number --jq '.[0].number // empty')"
+          if [ -n "$existing" ]; then
+            gh issue edit "$existing" --body-file issue-body.md
+          else
+            gh issue create --label "$LABEL" \
+              --title "Speech service failing: voice will be slow or silent" \
+              --body-file issue-body.md
+          fi
+
+      - name: Close the outage issue once speech is healthy
+        if: steps.probe.outcome == 'success'
+        shell: bash
+        run: |
+          for number in $(gh issue list --label "$LABEL" --state open --json number --jq '.[].number' 2>/dev/null || true); do
+            gh issue close "$number" --comment "Speech is healthy again as of $(date -u '+%Y-%m-%d %H:%M UTC'): [run log]($RUN_URL)."
+          done
+
+      # Leave the run red as well, so the Actions tab agrees with the tracker.
+      - name: Fail the run when speech is unhealthy
+        if: steps.probe.outcome == 'failure'
+        run: exit 1

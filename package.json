@@ -1,7 +1,7 @@
 {
   "name": "germ",
   "private": true,
-  "version": "1.2.1151",
+  "version": "1.2.1152",
   "description": "Micheon — offline lessons with premium voice, spaced repetition, and gaming vocabulary.",
   "author": "Leon",
   "type": "module",
@@ -15,6 +15,7 @@
     "check:storage-writes": "node scripts/check-storage-writes.cjs",
     "check:tts-tail": "node scripts/check-tts-tail.cjs",
     "check:tts-handshake": "node scripts/check-tts-handshake.cjs",
+    "probe:tts-hosts": "node scripts/probe-tts-hosts.mjs",
     "check:french-interface": "node scripts/check-french-interface.cjs",
     "check:polish-interface": "node scripts/check-polish-interface.cjs",
     "check:spanish-interface": "node scripts/check-spanish-interface.cjs",

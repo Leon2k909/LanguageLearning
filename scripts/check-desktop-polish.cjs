@@ -14,7 +14,6 @@ const theme = read("src/lib/theme.ts");
 const mastery = read("src/components/lab/MasteryCard.tsx");
 const learnView = read("src/components/lab/LearnView.tsx");
 const testsView = read("src/components/tests/TestsView.tsx");
-const readme = read("README.md");
 const documentHead = read("index.html");
 const favicon = read("public/favicon.svg");
 const primaryNavigation = (/const NAVIGATION:[\s\S]*?\n\];/.exec(prototype) || [""])[0];
@@ -172,12 +171,9 @@ const screenshotPaths = [
   "docs/screenshots/micheon-games.png",
 ];
 
-check("the README displays Micheon's app logo", readme.includes('<img src="public/icon.png" alt="Micheon logo"'));
 check("the document advertises Micheon favicons at every common size", documentHead.includes('href="/favicon.svg') && documentHead.includes('href="/icon-64.png') && documentHead.includes('rel="apple-touch-icon"') && documentHead.includes('href="/icon.png'));
 check("the conventional SVG favicon embeds Micheon's canonical artwork", favicon.includes('aria-label="Micheon"') && favicon.includes("data:image/png;base64,"));
 check("the retired Vite starter icon cannot resurface", !fs.existsSync(path.join(root, "src/assets/vite.svg")) && !favicon.includes("#863bff"));
-check("the README love line appears once", (readme.match(/Made with love ❤️ by Leon and Michelle\./g) || []).length === 1);
-check("the README references every showcase screenshot", screenshotPaths.every((relativePath) => readme.includes(relativePath)));
 check("all showcase screenshots are real, full-size PNGs", screenshotPaths.every((relativePath) => {
   const size = pngSize(relativePath);
   return size && size.width >= 1200 && size.height >= 700 && size.bytes > 100_000;

@@ -144,3 +144,73 @@ jobs:
             --draft=false \
             --latest \
             --repo "$GITHUB_REPOSITORY"
+
+  # A release that fails has to be heard about.
+  #
+  # The updater keeps serving the last good release when a build fails, which
+  # is right for installations and exactly what made failures invisible: a fix
+  # could sit on main for days, gated out by an unrelated check, while every
+  # installation stayed on the version it was meant to replace. This job opens
+  # a single "release-failed" issue naming the version, the failed step and the
+  # gate's FAIL lines, mentioning the repository owner so it arrives as an
+  # email. Further failures comment on it; the next published release closes it.
+  #
+  # A cancelled run is not a failure: cancel-in-progress replaces an older build
+  # with a newer one by design, and !cancelled() keeps those quiet.
+  report:
+    needs: [prepare-release, build]
+    if: always() && !cancelled()
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+      LABEL: release-failed
+      TAG: ${{ needs.prepare-release.outputs.tag }}
+      OWNER: ${{ github.repository_owner }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - name: Open or extend the release-failed issue
+        if: needs.prepare-release.result == 'failure' || needs.build.result == 'failure'
+        shell: bash
+        run: |
+          title="$(gh api "repos/$GH_REPO/commits/$GITHUB_SHA" --jq '.commit.message | split("\n")[0]' 2>/dev/null || echo "$GITHUB_SHA")"
+          {
+            printf '## %s did not publish\n\n' "${TAG:-This release}"
+            printf 'Commit `%s`: %s\n\n' "${GITHUB_SHA:0:7}" "$title"
+            printf 'Installations stay on the last published release until a build succeeds.\n\n'
+            { gh api "repos/$GH_REPO/actions/runs/$GITHUB_RUN_ID/jobs" \
+              --jq '.jobs[] | select(.conclusion == "failure") | "\(.id)\t\(.name)\t\([.steps[] | select(.conclusion == "failure") | .name] | join(", "))"' || true; } |
+            while IFS=$'\t' read -r job_id job_name steps; do
+              printf '**Job `%s` failed at:** %s\n\n' "$job_name" "${steps:-an unknown step}"
+              # The gate prints one FAIL line per broken check, which names the
+              # cause far better than the tail of a long log.
+              log="$(gh api "repos/$GH_REPO/actions/jobs/$job_id/logs" 2>/dev/null | sed -E 's/^[0-9T:.-]+Z //' || true)"
+              lines="$(printf '%s\n' "$log" | grep -E '^(FAIL|npm error|Error:)' | head -n 30 || true)"
+              [ -n "$lines" ] || lines="$(printf '%s\n' "$log" | tail -n 40)"
+              printf '```\n%s\n```\n\n' "$lines"
+            done
+            printf '[Run log](%s) · this issue closes itself when the next release publishes.\n\ncc @%s\n' "$RUN_URL" "$OWNER"
+          } > report.md
+
+          gh label create "$LABEL" --color D93F0B \
+            --description "A release build failed; installations are not getting updates" --force
+          existing="$(gh issue list --label "$LABEL" --state open --json number --jq '.[0].number // empty')"
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body-file report.md
+          else
+            gh issue create --label "$LABEL" \
+              --title "Release failed: updates are not reaching installations" \
+              --body-file report.md
+          fi
+
+      - name: Close the release-failed issue once a release publishes
+        if: needs.build.result == 'success'
+        shell: bash
+        run: |
+          for number in $(gh issue list --label "$LABEL" --state open --json number --jq '.[].number' 2>/dev/null || true); do
+            gh issue close "$number" --comment "$TAG published: [run log]($RUN_URL)."
+          done
