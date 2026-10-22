@@ -294,10 +294,55 @@ function synthesizeOnce(key, text, voice, rate) {
 }
 
 const app = express();
-// Pet spritesheets travel as base64 inside the private transfer archive. The
-// pet module applies the tighter per-file and total limits; this only prevents
-// Express from rejecting a valid multi-pet archive before that validation runs.
-app.use(express.json({ limit: "80mb" }));
+
+/**
+ * Only this machine's own pages may talk to this server.
+ *
+ * It listens on loopback, which keeps other machines out but not other
+ * websites: a page in the learner's browser can point a hostname of its own
+ * at 127.0.0.1 (DNS rebinding) and then read or wipe /api/storage, and any
+ * page can submit a form at a POST route without reading the answer. The
+ * Host header is what rebinding cannot fake — it still names the attacker's
+ * domain — so only loopback names are served. Writes also need an Origin
+ * that is local, or none at all, which is what the app's own fetches and the
+ * browser extension's background page send.
+ */
+const LOOPBACK_HOSTNAMES = new Set(["localhost", "127.0.0.1", "[::1]"]);
+
+function hostnameOf(value) {
+  const text = String(value || "").trim().toLowerCase();
+  if (!text) return "";
+  if (text.startsWith("[")) return text.slice(0, text.indexOf("]") + 1);
+  return text.split(":")[0];
+}
+
+export function isTrustedRequest({ method, host, origin }) {
+  if (!LOOPBACK_HOSTNAMES.has(hostnameOf(host))) return false;
+  if (["GET", "HEAD", "OPTIONS"].includes(String(method).toUpperCase())) return true;
+  if (origin == null || origin === "") return true;
+  try {
+    const { protocol, hostname } = new URL(String(origin));
+    if (protocol === "chrome-extension:" || protocol === "moz-extension:") return true;
+    return (protocol === "http:" || protocol === "https:")
+      && LOOPBACK_HOSTNAMES.has(hostname.startsWith("[") ? hostname : hostname.toLowerCase());
+  } catch {
+    return false;
+  }
+}
+
+app.use((req, res, next) => {
+  if (isTrustedRequest({ method: req.method, host: req.headers.host, origin: req.headers.origin })) return next();
+  res.status(403).json({ error: "request refused: not from this machine's own pages" });
+});
+
+// Bodies are parsed inside the process that owns the windows, so the limit is
+// per route rather than one 80 MB ceiling for all of them. Pet spritesheets
+// travel as base64 inside the private transfer archive, and the pet module
+// applies the tighter per-file and total limits; progress batches can carry a
+// heavy learner's whole grade store; nothing else sends more than a few KB.
+app.use("/api/codex-pets/transfer", express.json({ limit: "80mb" }));
+app.use("/api/storage", express.json({ limit: "32mb" }));
+app.use(express.json({ limit: "1mb" }));
 
 const appdataDir = path.join(process.env.APPDATA || os.homedir(), "germ");
 const appdataFile = path.join(appdataDir, "shared-progress.json");

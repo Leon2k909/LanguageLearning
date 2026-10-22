@@ -10,6 +10,7 @@ import {
   app,
   BrowserWindow,
   clipboard,
+  dialog,
   globalShortcut,
   Menu,
   nativeImage,
@@ -40,6 +41,60 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Local port for the embedded server. Deliberately uncommon so it won't collide
 // with the dev server (3001) or other tooling on the user's machine.
 const PORT = process.env.GERM_PORT || 41730;
+
+/**
+ * Only the app's own pages may run inside its windows.
+ *
+ * Every window here carries the preload bridge, which can change update
+ * settings, launch at login, install the browser extension and more — and
+ * the bridge cannot tell who is calling. Nothing stopped a window from being
+ * navigated away: a link dragged onto the window, or a stray in-page link,
+ * took the frameless window to someone else's page, which then held the
+ * bridge with no way back. Electron also grants every permission it is asked
+ * for by default, so that page got the camera and microphone without a prompt.
+ *
+ * So navigation outside the app is refused (an http link opens in the
+ * browser instead), and the only permissions granted are the two the app
+ * uses, to the app's own pages: writing to the clipboard and going fullscreen.
+ */
+const APP_ORIGINS = new Set([`http://localhost:${PORT}`, `http://127.0.0.1:${PORT}`]);
+const GRANTED_PERMISSIONS = new Set(["clipboard-sanitized-write", "fullscreen"]);
+
+function isAppUrl(url) {
+  try {
+    return APP_ORIGINS.has(new URL(String(url)).origin);
+  } catch {
+    return false;
+  }
+}
+
+/** Hand a web link to the learner's browser; anything that is not one goes nowhere. */
+function openInBrowser(url) {
+  try {
+    const { protocol } = new URL(String(url));
+    if (protocol === "https:" || protocol === "http:") void shell.openExternal(String(url));
+  } catch { /* not a URL at all */ }
+}
+
+app.on("web-contents-created", (_event, contents) => {
+  contents.on("will-navigate", (event, legacyUrl) => {
+    const url = event?.url ?? legacyUrl;
+    if (isAppUrl(url)) return;
+    event.preventDefault();
+    openInBrowser(url);
+  });
+  contents.on("will-redirect", (event, legacyUrl) => {
+    if (!isAppUrl(event?.url ?? legacyUrl)) event.preventDefault();
+  });
+  contents.on("will-attach-webview", (event) => event.preventDefault());
+});
+
+function installPermissionPolicy() {
+  session.defaultSession.setPermissionRequestHandler((contents, permission, callback, details) => {
+    const asking = details?.requestingUrl || contents?.getURL?.() || "";
+    callback(GRANTED_PERMISSIONS.has(permission) && isAppUrl(asking));
+  });
+}
 
 let mainWindow = null;
 let petWindow = null;
@@ -1574,13 +1629,12 @@ async function createWindow() {
   });
 
   // Open external links (http/https to other sites) in the user's real browser
-  // instead of inside the app window.
+  // instead of inside the app window. Nothing else opens a window: the app
+  // never asks for one, and allowing the rest let file: and data: pages open
+  // with the app's own session.
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    if (url.startsWith("http")) {
-      shell.openExternal(url);
-      return { action: "deny" };
-    }
-    return { action: "allow" };
+    openInBrowser(url);
+    return { action: "deny" };
   });
 
   mainWindow.on("closed", () => {
@@ -1657,14 +1711,20 @@ function applyUpdatePreferences() {
   return automatic;
 }
 
+let autoUpdateStarted = false;
+
 function setupAutoUpdate() {
   if (!app.isPackaged) return;
+  // A failed first window starts it early (see openMainWindowOrExplain), and
+  // the listeners and timers below must exist once.
+  if (autoUpdateStarted) return;
+  autoUpdateStarted = true;
   applyUpdatePreferences();
-  // Releases now use one stable repo/name, so block-map updates can transfer
-  // only changed blocks instead of downloading the whole installer every time.
-  // The old v1.2.11 updater still full-downloads this transition release; this
-  // setting takes effect for the much smaller updates after it is installed.
-  autoUpdater.disableDifferentialDownload = false;
+  // Full downloads only. Differential updates need the .blockmap files, and the
+  // release workflow deliberately does not upload them (they stalled on this
+  // installer — see release.yml), so every update attempted a block-map fetch
+  // that could only fail before falling back to the full download anyway.
+  autoUpdater.disableDifferentialDownload = true;
 
   autoUpdater.on("error", (err) => {
     console.error("[updater] error:", err?.message ?? err);
@@ -2425,9 +2485,52 @@ ipcMain.on("pet-overlay:speak", (event, payload) => {
   });
 });
 
+/**
+ * Open the main window, or say why it cannot be opened.
+ *
+ * The window loads from the embedded server, so if port 41730 is taken the
+ * server cannot start and createWindow throws. That used to end the startup
+ * there: no window, no message, a process sitting invisible in the
+ * background — and setupAutoUpdate, further down, never ran, so the one
+ * channel that could deliver a fix was off too. The updater now starts
+ * before the learner is asked what to do.
+ */
+async function openMainWindowOrExplain() {
+  for (;;) {
+    try {
+      await createWindow();
+      return true;
+    } catch (error) {
+      console.error("[startup] the main window could not open:", error);
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.destroy();
+      mainWindow = null;
+      setupAutoUpdate();
+      const busy = error?.code === "EADDRINUSE" || error?.code === "EACCES";
+      const { response } = await dialog.showMessageBox({
+        type: "error",
+        title: "Micheon",
+        message: "Micheon could not start.",
+        detail: busy
+          ? `Another program is using port ${PORT}, which Micheon needs for its lessons and voices. Close that program, then try again.`
+          : String(error?.message ?? error),
+        buttons: ["Try again", "Quit"],
+        defaultId: 0,
+        cancelId: 1,
+        noLink: true,
+      });
+      console.log(`[startup] the learner chose ${response === 0 ? "to try again" : "to quit"}`);
+      if (response !== 0) {
+        app.quit();
+        return false;
+      }
+    }
+  }
+}
+
 if (hasSingleInstanceLock) {
   app.whenReady().then(async () => {
-    await createWindow();
+    installPermissionPolicy();
+    if (!(await openMainWindowOrExplain())) return;
     // Works from inside a fullscreen game, which is the only place it helps.
     // The mascot holds still while another app is in front — see
     // broadcastPetAppFocus. blur/focus fire for every Micheon window, and the

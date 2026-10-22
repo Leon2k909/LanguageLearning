@@ -27,12 +27,16 @@ concurrency:
   # blocking every subsequent release behind stale work.
   cancel-in-progress: true
 
+# Read-only unless a job says otherwise. Only the two jobs that create and
+# publish the release can write to it; the build in between cannot.
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   prepare-release:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     outputs:
       tag: ${{ steps.release.outputs.tag }}
       should_build: ${{ steps.release.outputs.should_build }}
@@ -69,7 +73,7 @@ jobs:
             # after a failed one — the newest release was an empty shell with no
             # latest.yml. That is not "no update available" to the updater, it is
             # a dead feed, and it also hides the previous release that does work.
-            # Michelle sat on 1.2.352 for hours because of exactly this.
+            # Installations sat on 1.2.352 for hours because of exactly this.
             #
             # Drafts are invisible to /releases/latest, so the last good release
             # stays current until a new one is genuinely ready to replace it.
@@ -82,10 +86,17 @@ jobs:
             echo "should_build=true" >> "$GITHUB_OUTPUT"
           fi
 
+  # The build runs npm ci and a few hundred scripts from the dependency tree,
+  # so it gets no write access and no persisted token: a compromised package
+  # here could otherwise replace the installer and latest.yml, and every
+  # installation would update to it. It hands the artifacts to `publish`,
+  # which is the only job that can attach them.
   build:
     needs: prepare-release
     if: needs.prepare-release.outputs.should_build == 'true'
     runs-on: windows-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
         with:
@@ -96,6 +107,7 @@ jobs:
           # run — the guard had never once executed. Two commits is all it
           # needs.
           fetch-depth: 2
+          persist-credentials: false
 
       - uses: actions/setup-node@v4
         with:
@@ -113,6 +125,12 @@ jobs:
         env:
           NODE_OPTIONS: --max-old-space-size=4096
 
+      # A shipped build once died on launch with "Cannot find package 'uuid'":
+      # electron-builder had left most runtime modules out of the asar, and
+      # nothing before packaging can see that. This reads the asar it made.
+      - name: Check the packaged app carries its runtime modules
+        run: node scripts/check-packaged-deps.cjs "release/win-unpacked/resources/app.asar"
+
       - name: Normalise Windows artifact name
         shell: bash
         run: |
@@ -126,12 +144,34 @@ jobs:
           done
           ls -la *.exe latest.yml
 
+      - name: Hand the installer to the publish job
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-release
+          path: |
+            release/*.exe
+            release/latest.yml
+          if-no-files-found: error
+          retention-days: 3
+
+  publish:
+    needs: [prepare-release, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-release
+          path: release
+
       - name: Attach Windows artifacts
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ needs.prepare-release.outputs.tag }}
         run: |
+          ls -la release
           gh release upload "$TAG" release/*.exe release/latest.yml \
             --clobber --repo "$GITHUB_REPOSITORY"
 
@@ -158,7 +198,7 @@ jobs:
   # A cancelled run is not a failure: cancel-in-progress replaces an older build
   # with a newer one by design, and !cancelled() keeps those quiet.
   report:
-    needs: [prepare-release, build]
+    needs: [prepare-release, build, publish]
     if: always() && !cancelled()
     runs-on: ubuntu-latest
     permissions:
@@ -174,7 +214,7 @@ jobs:
       RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
     steps:
       - name: Open or extend the release-failed issue
-        if: needs.prepare-release.result == 'failure' || needs.build.result == 'failure'
+        if: needs.prepare-release.result == 'failure' || needs.build.result == 'failure' || needs.publish.result == 'failure'
         shell: bash
         run: |
           title="$(gh api "repos/$GH_REPO/commits/$GITHUB_SHA" --jq '.commit.message | split("\n")[0]' 2>/dev/null || echo "$GITHUB_SHA")"
@@ -208,7 +248,7 @@ jobs:
           fi
 
       - name: Close the release-failed issue once a release publishes
-        if: needs.build.result == 'success'
+        if: needs.publish.result == 'success'
         shell: bash
         run: |
           for number in $(gh issue list --label "$LABEL" --state open --json number --jq '.[].number' 2>/dev/null || true); do

@@ -55,6 +55,12 @@
   const GERMAN_HINT_RE = /(?<![\p{L}])(?:und|nicht|der|die|das|ist|sind|ich|du|wir|mit|für|auch|über|sei|ein|eine|zum|zur|auf|dem|den)(?![\p{L}])/gu;
 
   const IS_YOUTUBE = /(^|\.)youtube\.com$/.test(location.hostname);
+  // Mail, chat and banking pages are somebody's private correspondence. Words
+  // met there still count towards the word bank, but the sentence around them
+  // is never kept: the list is stored, shown and exportable, and nobody
+  // expects a line from their inbox or their bank to turn up in it.
+  const IS_PRIVATE_PAGE = /(^|\.)(mail\.google\.com|outlook\.(?:live|office|office365)\.com|mail\.yahoo\.com|(?:mail\.)?proton\.me|web\.whatsapp\.com|messenger\.com|web\.telegram\.org|app\.slack\.com|discord\.com|teams\.microsoft\.com|icloud\.com|gmx\.(?:net|de|com)|web\.de|t-online\.de|paypal\.com)$/.test(location.hostname)
+    || /(^|[.-])(bank|banking|sparkasse|volksbank)([.-]|$)/.test(location.hostname);
   const IS_X = /(^|\.)(?:x|twitter)\.com$/.test(location.hostname);
   // Title first, then the description in its collapsed and expanded homes.
   // YouTube reshuffles its DOM between deploys, so several selectors --
@@ -650,7 +656,7 @@
   function noteMissing(counts, examples, word, sentence) {
     counts.set(word, (counts.get(word) || 0) + 1);
     const seen = examples.get(word) || new Set();
-    if (sentence) seen.add(sentence);
+    if (sentence && !IS_PRIVATE_PAGE) seen.add(sentence);
     while (seen.size > 4) seen.delete(seen.values().next().value);
     examples.set(word, seen);
     scheduleFlush();

@@ -1,15 +1,15 @@
 {
   "manifest_version": 3,
   "name": "Micheon Immersion",
-  "version": "0.3.33",
+  "version": "0.3.34",
   "description": "Highlights German words you're already learning in Micheon wherever you browse, logs new words it finds so the word bank can grow, and sets YouTube to its German dub + English captions when a video has one.",
   "permissions": [
     "storage",
-    "offscreen"
+    "offscreen",
+    "activeTab"
   ],
   "host_permissions": [
-    "http://*/*",
-    "https://*/*"
+    "http://127.0.0.1:41730/*"
   ],
   "background": {
     "service_worker": "src/background.js"

@@ -69,6 +69,26 @@ function storageDevPlugin() {
       server.middlewares.use(async (req, res, next) => {
         if (req.url === "/api/storage") {
           res.setHeader("Content-Type", "application/json");
+          // This middleware runs ahead of Vite's own host checks and writes the
+          // real shared progress file, so it refuses what the app server
+          // refuses: a foreign Host (DNS rebinding), and a write that is not
+          // JSON from a local page — a text/plain form post from any website
+          // needs no preflight and would otherwise overwrite progress.
+          const loopback = new Set(["localhost", "127.0.0.1", "[::1]"]);
+          const hostOf = (value) => {
+            const text = String(value || "").toLowerCase();
+            return text.startsWith("[") ? text.slice(0, text.indexOf("]") + 1) : text.split(":")[0];
+          };
+          let originOk = !req.headers.origin;
+          try {
+            originOk ||= loopback.has(new URL(String(req.headers.origin)).hostname.toLowerCase());
+          } catch { /* not a URL: refused below */ }
+          const jsonBody = String(req.headers["content-type"] || "").toLowerCase().startsWith("application/json");
+          if (!loopback.has(hostOf(req.headers.host)) || (req.method !== "GET" && (!originOk || !jsonBody))) {
+            res.statusCode = 403;
+            res.end(JSON.stringify({ error: "request refused: not from this machine's own pages" }));
+            return;
+          }
           if (req.method === "GET") {
             res.end(JSON.stringify(readSharedStorage()));
             return;
