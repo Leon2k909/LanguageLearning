@@ -261,11 +261,25 @@ export function summarizeActivity(
 ) {
   const startOfToday = new Date(now);
   startOfToday.setHours(0, 0, 0, 0);
-  const rangeStart = startOfToday.getTime() - (days - 1) * DAY_MS;
-  const idx = (ts: number) => Math.floor((ts - rangeStart) / DAY_MS);
+  // Days by calendar date, never by multiples of 24 hours: a range that spans a
+  // clock change has one 23- or 25-hour day in it, and dividing by DAY_MS put
+  // everything from midnight to one in the morning on the day before.
+  const dayStartFor = (offset: number) => {
+    const d = new Date(startOfToday);
+    d.setDate(d.getDate() + offset);
+    return d.getTime();
+  };
+  const rangeStart = dayStartFor(-(days - 1));
+  const idx = (ts: number) => {
+    if (!Number.isFinite(ts) || ts < rangeStart) return -1;
+    const at = new Date(ts);
+    at.setHours(0, 0, 0, 0);
+    // Midnight to midnight is 23, 24 or 25 hours, so rounding is exact.
+    return Math.round((at.getTime() - rangeStart) / DAY_MS);
+  };
 
   const buckets: DayBucket[] = Array.from({ length: days }, (_, i) => ({
-    dayStart: rangeStart + i * DAY_MS,
+    dayStart: dayStartFor(i - (days - 1)),
     minutes: 0,
     items: 0,
     listened: 0,

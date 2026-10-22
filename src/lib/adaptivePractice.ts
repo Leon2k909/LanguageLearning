@@ -24,6 +24,8 @@ export type AnswerPerformance = {
 };
 
 type AdaptivePracticeFields = {
+  /** Rungs climbed on the review ladder (see memoryStrength). */
+  successes?: number;
   /** Answer checks made while practising this sentence. */
   answerAttempts?: number;
   /** Incorrect checks made while practising this sentence. */
@@ -270,6 +272,12 @@ export function isSameDayCheckEligible(
   if (isSnoozed(record, now)) return false;
   const dueAt = record.dueAt ? Date.parse(record.dueAt) : Number.POSITIVE_INFINITY;
   if (Number.isFinite(dueAt) && now >= dueAt) return false; // the real review owns it
+  // Learned today, not merely graded today. updatedAt moves on every grade, so
+  // without this a review passed this morning was offered again this afternoon
+  // and its half rung banked on top — two sittings a day climbed past the
+  // three-day rung without ever waiting three days. Only the first rung is a
+  // phrase that was new today.
+  if ((Number(record.successes) || 0) > 1) return false;
   const learnedAt = record.updatedAt ? Date.parse(record.updatedAt) : 0;
   if (!Number.isFinite(learnedAt) || learnedAt <= 0) return false;
   if (!isSameLocalDay(learnedAt, now)) return false;

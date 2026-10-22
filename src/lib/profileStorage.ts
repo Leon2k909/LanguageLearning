@@ -167,11 +167,40 @@ export function getAuthUser(): UserProfile | null {
   }
 }
 
+/**
+ * The key a course-scoped key stands for: "session-completed@learn-de:id" is
+ * "session-completed:id" as far as the list above is concerned.
+ *
+ * Without this the split by course (see DIRECTION_SCOPED_KEYS) took every key
+ * it scoped out of the mirror. The prefixes end in ":" and a scoped key has
+ * "@learn-…" where the colon used to be, so completed lessons, XP, the lesson
+ * count, the session log and the current part all stopped reaching the shared
+ * file — and a device whose local storage was lost came back to nothing.
+ */
+function unscopedKey(key: string) {
+  return key.replace(/@learn-[a-z]+(?=:)/u, "");
+}
+
 function shouldSyncKey(key: string) {
   if (SESSION_LOCAL_KEYS.has(key)) return false;
   if (APPEARANCE_LOCAL_KEYS.has(key)) return false;
-  return SHARED_SYNC_PREFIXES.some((prefix) => key.startsWith(prefix));
+  const base = unscopedKey(key);
+  return SHARED_SYNC_PREFIXES.some((prefix) => base.startsWith(prefix));
 }
+
+/**
+ * Which local writes the mirror has not caught up with yet.
+ *
+ * Re-reading the mirror on window focus takes a moment, and anything written
+ * in that moment — the answer given straight after clicking back into the
+ * window — is newer than the copy that comes back. Applying that copy wrote the
+ * old value over the new one, and the next read-modify-write saved the loss.
+ * Every write is stamped here; a hydrate leaves alone any key written after it
+ * started, and any key still queued for or travelling to the mirror.
+ */
+let localWriteTick = 0;
+const lastLocalWrite = new Map<string, number>();
+let inFlightSharedItems: Record<string, string | null> = {};
 
 const SHARED_SYNC_DELAY_MS = 100;
 let pendingSharedItems: Record<string, string | null> = {};
@@ -200,6 +229,7 @@ async function flushSharedItems(keepalive = false) {
   if (Object.keys(items).length === 0) return;
 
   sharedSyncInFlight = true;
+  inFlightSharedItems = items;
   const request = (async () => {
     let retry = false;
     try {
@@ -217,6 +247,7 @@ async function flushSharedItems(keepalive = false) {
       retry = true;
     } finally {
       sharedSyncInFlight = false;
+      inFlightSharedItems = {};
       if (Object.keys(pendingSharedItems).length > 0) {
         if (retry) sharedSyncRetryDelay = Math.min(30000, sharedSyncRetryDelay * 2);
         scheduleSharedSync(retry ? sharedSyncRetryDelay : SHARED_SYNC_DELAY_MS);
@@ -245,6 +276,8 @@ function queueSharedItems(items: Record<string, string | null>) {
   // Local storage is already durable at this point. Coalesce the mirror writes
   // so completing one lesson does not cause a read/parse/write cycle for every
   // grade, streak, activity, and statistic updated in the same moment.
+  localWriteTick += 1;
+  for (const key of Object.keys(items)) lastLocalWrite.set(key, localWriteTick);
   Object.assign(pendingSharedItems, items);
   scheduleSharedSync();
 }
@@ -272,11 +305,27 @@ export async function hydrateLocalStorageFromSharedStorage() {
       deprecatedDeletes[key] = null;
     }
   }
+  const startedAtTick = localWriteTick;
+  const writtenSinceStart = (key: string) => (lastLocalWrite.get(key) ?? 0) > startedAtTick
+    || key in pendingSharedItems
+    || key in inFlightSharedItems;
   try {
     const response = await fetch("/api/storage", { cache: "no-store" });
     if (!response.ok) return false;
     const data = await response.json();
     const items = data?.items && typeof data.items === "object" ? data.items : {};
+    // Course progress that never reached the mirror while the scoped keys were
+    // filtered out of it (see unscopedKey). Only scoped keys, and only ones the
+    // mirror has no entry for: anything else missing from it may have been
+    // deleted on purpose elsewhere, and must not be put back from here.
+    const neverMirrored: Record<string, string> = {};
+    for (let index = 0; index < window.localStorage.length; index += 1) {
+      const key = window.localStorage.key(index);
+      if (!key || unscopedKey(key) === key || items[key] !== undefined || !shouldSyncKey(key)) continue;
+      const value = window.localStorage.getItem(key);
+      if (value != null) neverMirrored[key] = value;
+    }
+    syncSharedItems(neverMirrored);
     // An older build mirrored the session, and that copy outlives the change:
     // it is skipped on the way in now, but it would sit in the file for good.
     // Clearing it there leaves the session on this device untouched.
@@ -307,16 +356,18 @@ export async function hydrateLocalStorageFromSharedStorage() {
         continue;
       }
       if (typeof key !== "string" || typeof value !== "string" || !shouldSyncKey(key)) continue;
+      if (writtenSinceStart(key)) continue;
       if (window.localStorage.getItem(key) !== value) {
         window.localStorage.setItem(key, value);
         changed = true;
-        if (key.startsWith("session-completed:")) {
+        const base = unscopedKey(key);
+        if (base.startsWith("session-completed:")) {
           gradesChanged = true;
         }
-        if (key.startsWith("activity-log:")) {
+        if (base.startsWith("activity-log:")) {
           activityChanged = true;
         }
-        if (key === "germ-mastery-set" || key.startsWith("vocab-mastery")) {
+        if (key === "germ-mastery-set" || base.startsWith("vocab-mastery")) {
           masteryChanged = true;
         }
       }

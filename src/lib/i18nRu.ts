@@ -4508,4 +4508,6 @@ export const RU: Record<string, string> = {
   "Albanian tip: adjectives come after the noun and most bring a small article of their own — një djalë i mirë, një vajzë e mirë.": "Совет по албанскому: прилагательное ставится после существительного, и у большинства есть свой маленький артикль — një djalë i mirë, një vajzë e mirë.",
   "Albanian tip: “Ç'kemi?” is the everyday hello-how-are-you, and “Mirë, po ti?” the answer.": "Совет по албанскому: «Ç'kemi?» — повседневное привет-как-дела, а «Mirë, po ti?» — ответ.",
   "Albanian tip: there is no infinitive — I want to go is “dua të shkoj”, literally I want that I go.": "Совет по албанскому: инфинитива нет — «хочу пойти» звучит как «dua të shkoj», то есть «хочу + иду».",
+  "Check the capital letters: a sentence starts with one, and in German so does every noun, and Sie, Ihnen and Ihr when they mean you.": "Проверь заглавные буквы: предложение начинается с большой буквы, а в немецком так же пишется каждое существительное, как и Sie, Ihnen и Ihr в вежливом обращении.",
+  "Check the capital letters.": "Проверь заглавные буквы.",
 };

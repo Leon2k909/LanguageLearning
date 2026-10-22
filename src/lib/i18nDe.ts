@@ -5227,4 +5227,6 @@ export const DE: Record<string, string> = {
   "Albanian tip: adjectives come after the noun and most bring a small article of their own — një djalë i mirë, një vajzë e mirë.": "Albanisch-Tipp: Adjektive stehen hinter dem Nomen, und die meisten bringen einen eigenen kleinen Artikel mit — një djalë i mirë, një vajzë e mirë.",
   "Albanian tip: “Ç'kemi?” is the everyday hello-how-are-you, and “Mirë, po ti?” the answer.": "Albanisch-Tipp: „Ç'kemi?“ ist das alltägliche Hallo-wie-geht's, und „Mirë, po ti?“ die Antwort.",
   "Albanian tip: there is no infinitive — I want to go is “dua të shkoj”, literally I want that I go.": "Albanisch-Tipp: Es gibt keinen Infinitiv — ich will gehen heißt „dua të shkoj“, wörtlich ich will, dass ich gehe.",
+  "Check the capital letters: a sentence starts with one, and in German so does every noun, and Sie, Ihnen and Ihr when they mean you.": "Achte auf die Großschreibung: Ein Satz beginnt groß, und im Deutschen schreibt man jedes Nomen groß, ebenso Sie, Ihnen und Ihr in der höflichen Anrede.",
+  "Check the capital letters.": "Achte auf die Großschreibung.",
 };

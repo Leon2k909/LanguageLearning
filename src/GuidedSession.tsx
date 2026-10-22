@@ -1368,6 +1368,19 @@ function matchMeaningInLanguage(input: string, target: string, language: CourseL
   return matchEnglishMeaning(input, target);
 }
 
+/**
+ * What to say when the only thing wrong is a capital letter.
+ *
+ * It used to state the German rule on every course, so a French learner who
+ * typed "paris" was told about German nouns — in English, whatever the app
+ * language. The German rule is only offered where it is the rule.
+ */
+function capitalLetterHint(targetLang: string): string {
+  return targetLang.startsWith("de")
+    ? ui("Check the capital letters: a sentence starts with one, and in German so does every noun, and Sie, Ihnen and Ihr when they mean you.")
+    : ui("Check the capital letters.");
+}
+
 function guidedTargetLanguageTag(): string {
   const direction = getLearningDirection();
   if (direction === "learn-en") {
@@ -4594,7 +4607,7 @@ function SentenceExercise({ item, listeningChoicePool, translationChoicePool = [
                   {result.ok ? (
                     <div className="flex items-center justify-center gap-2 text-emerald-700 font-semibold text-lg">
                       <CheckCircle2 className="h-5 w-5" />
-                      {result.spellingNote ? "Close enough - watch the spelling next time" : "Perfect!"}
+                      {result.spellingNote ? ui("Close enough — watch the spelling") : ui("Perfect!")}
                     </div>
                   ) : result.phrasingNote ? (
                     <div className="space-y-1.5">
@@ -4609,8 +4622,8 @@ function SentenceExercise({ item, listeningChoicePool, translationChoicePool = [
                     <div className="space-y-2">
                       <div className="text-rose-700 font-semibold">
                         {result.capitalizationError
-                          ? "Capitalization error! In German, nouns and formal 'Sie/Ihnen/Ihr' must be capitalized."
-                          : "Not quite - try again"}
+                          ? capitalLetterHint(targetLang)
+                          : ui("Not quite")}
                       </div>
                       <div className="text-xs text-zinc-500">{ui("Target:")} <span className="text-zinc-950 font-semibold"><CourseText code={targetLang} text={item.de} /></span></div>
                     </div>
@@ -5516,8 +5529,8 @@ function DialogueExercise({ dialogue, onNext, onGradeItem, onReviewLevel, onSnoo
               : <div className="space-y-1">
                   <div className="text-sm font-black">
                     {result.capitalizationError
-                      ? "Capitalization error! In German, nouns and formal 'Sie/Ihnen/Ihr' must be capitalized."
-                      : "Not quite"}
+                      ? capitalLetterHint(targetLang)
+                      : ui("Not quite")}
                   </div>
                   <div className="text-xs font-bold text-zinc-500"><CourseText code={targetLang} text={line.de} /></div>
                 </div>}

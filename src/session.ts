@@ -78,11 +78,14 @@ export function buildSession(part: any, _studyItems: any[], reviewState: any, _r
    * something the learner has recalled correctly several times running.
    *
    * "strong" needs BOTH a real run of successes and a spacing interval that
-   * only comes from surviving earlier reviews — one lucky "Know it" click
-   * cannot reach it, and a struggle resets the run to zero (see recordSuccess).
+   * only comes from surviving earlier reviews or from the learner declaring it
+   * known outright (recordDeclaredKnown) — one lucky correct answer cannot
+   * reach it, and a struggle resets the run to zero (see recordSuccess).
    */
   const masteryOf = (rec: any): "new" | "learning" | "strong" => {
     if (!rec || rec.lastGrade !== "know") return rec ? "learning" : "new";
+    // Stored, a permanent item's Infinity interval is null — not "learning".
+    if (rec.permanent) return "strong";
     const successes = Number(rec.successes) || 0;
     const interval = Number(rec.intervalDays) || 0;
     if (successes >= 3 && interval >= 10) return "strong";

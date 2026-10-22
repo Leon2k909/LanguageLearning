@@ -52,6 +52,10 @@ export function computeAbility(grades: GradeStore): Ability {
   // scored separately from the raw hit rate.
   const depth = records.reduce((total, record) => {
     if (record.lastGrade !== "know") return total;
+    // A permanent item is as deep as it gets. Its interval is Infinity in
+    // memory, which JSON stores as null, so read from storage it looked like a
+    // one-day item and every "never show me this" pulled the score down.
+    if (record.permanent) return total + 1;
     const interval = Math.max(1, Number(record.intervalDays) || 1);
     return total + Math.min(1, interval / STRONG_INTERVAL_DAYS);
   }, 0) / graded;

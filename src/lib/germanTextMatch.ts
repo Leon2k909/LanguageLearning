@@ -297,6 +297,19 @@ export function normalizeGermanInput(t: string) {
     .trim();
 }
 
+/**
+ * "ae", "oe" and "ue" written for ä, ö and ü — but never straight after a
+ * vowel, where the e is a real letter.
+ *
+ * Folding every "ue" made the e of an adjective or verb ending disappear: the
+ * target "eine neue Idee" folded to "neu", so "eine neu Idee" came back as a
+ * spelling slip when it is a grammar mistake, and so did "Ich bau" for "baue"
+ * and "die blau Jacke". A spelled-out umlaut follows a consonant — fuer, Tuer,
+ * moechte, Baeckerei — so that is the only place the fold runs.
+ */
+const UMLAUT_SPELLED_OUT = /(?<![aeiouy])([aou])e/g;
+const UMLAUT_SPELLED_OUT_ANY_CASE = /(?<![aeiouyAEIOUY])([aouAOU])e/g;
+
 export function normalizeGermanLenient(t: string) {
   return normalizeGermanInput(t)
     .replace(/ß/g, "ss")
@@ -306,9 +319,7 @@ export function normalizeGermanLenient(t: string) {
     // letter, so answers typed without accents still match leniently.
     .normalize("NFKD")
     .replace(/[̀-ͯ]/g, "")
-    .replace(/ae/g, "a")
-    .replace(/oe/g, "o")
-    .replace(/ue/g, "u")
+    .replace(UMLAUT_SPELLED_OUT, "$1")
     // Colloquial / spoken contractions
     .replace(/\bnix\b/g, "nichts")
     .replace(/\bmachs\b/g, "mach es")
@@ -346,9 +357,7 @@ function normalizeGermanLenientCaseSensitive(t: string) {
     .replace(/æ/g, "ae")
     .normalize("NFKD")
     .replace(/[̀-ͯ]/g, "")
-    .replace(/ae/g, "a")
-    .replace(/oe/g, "o")
-    .replace(/ue/g, "u")
+    .replace(UMLAUT_SPELLED_OUT_ANY_CASE, "$1")
     // Case-INSENSITIVE match with the original capital put back, because this
     // normalizer preserves case on purpose. Written lowercase-only, these folds
     // silently did nothing at the start of a sentence — "Gibts?" stayed put
@@ -378,15 +387,72 @@ type GermanCaseNormalizer = (value: string) => string;
 // deliberately absent: their capital letters carry real information and must
 // still be taught. This lets a meaning-perfect answer such as
 // "ich verstehe das nicht. ich auch nicht" pass without weakening noun checks.
+//
+// The list was a dozen words long, so "kannst du mir helfen", "heute gehe ich
+// nach Hause" and "mir ist kalt" — right German, typed quickly — were wrong
+// answers. It now covers the word classes that actually open the course's
+// sentences: measured over all of them, pronouns, articles, prepositions,
+// conjunctions, adverbs, the auxiliaries and modals, and the common
+// imperatives account for nearly every first word that is not a noun.
+// Still explicit, and still without sie/ihr and their forms: at the start of a
+// sentence "sie" may be the formal Sie, which is exactly the capital to teach.
 const LOWERCASEABLE_SENTENCE_OPENERS = new Set([
-  "ich", "du", "er", "es", "wir", "man",
+  // pronouns, never the sie/ihr forms
+  "ich", "du", "er", "es", "wir", "man", "mich", "mir", "dich", "dir", "ihn", "ihm", "uns", "euch", "sich",
+  "mein", "meine", "meinen", "meinem", "meiner", "meines", "dein", "deine", "deinen", "deinem", "deiner", "deines",
+  "sein", "seine", "seinen", "seinem", "seiner", "seines", "unser", "unsere", "unseren", "unserem", "unserer",
+  "euer", "eure", "euren", "eurem", "eurer", "jemand", "niemand", "selbst",
+  // question words
   "wer", "wen", "wem", "wessen", "was", "wann", "warum", "wie", "wo", "woher", "wohin",
-  // Frequent dialogue openers that are only uppercase because they begin the
-  // utterance. Keeping this list explicit avoids accidentally forgiving real
-  // nouns or the formal pronouns Sie/Ihr.
-  "das", "ist", "weiß", "nicht", "nichts", "ja", "nein", "doch", "aber", "und", "oder",
-  "bitte", "danke", "hallo",
+  "welche", "welcher", "welches", "welchen", "welchem", "wozu", "woran", "wofür", "womit", "worüber", "wieso", "weshalb",
+  // articles and determiners
+  "der", "die", "das", "den", "dem", "des", "ein", "eine", "einen", "einem", "einer", "eines",
+  "kein", "keine", "keinen", "keinem", "keiner", "dieser", "diese", "dieses", "diesen", "diesem",
+  "jeder", "jede", "jedes", "jeden", "jedem", "alle", "alles", "manche", "mancher", "viele", "viel",
+  "wenige", "etwas", "nichts", "beide", "mehr",
+  // prepositions
+  "in", "im", "ins", "an", "am", "ans", "auf", "aus", "bei", "beim", "mit", "nach", "von", "vom", "zu", "zum", "zur",
+  "für", "über", "unter", "vor", "hinter", "neben", "zwischen", "ohne", "um", "gegen", "seit", "bis", "durch",
+  "ab", "statt", "trotz", "während", "wegen", "außer",
+  // conjunctions and linking adverbs
+  "und", "oder", "aber", "denn", "sondern", "wenn", "weil", "dass", "ob", "als", "obwohl", "damit", "falls",
+  "sobald", "bevor", "nachdem", "seitdem", "deshalb", "trotzdem", "also", "sonst", "darum", "dann", "danach",
+  "dafür", "daran", "davon", "dazu", "je", "einerseits", "andererseits",
+  // adverbs
+  "hier", "da", "dort", "jetzt", "heute", "gestern", "morgen", "bald", "gleich", "schon", "noch", "immer", "nie",
+  "oft", "manchmal", "selten", "gern", "gerne", "sehr", "so", "auch", "nur", "gerade", "eben", "erst", "zuerst",
+  "endlich", "vielleicht", "leider", "natürlich", "eigentlich", "wahrscheinlich", "angeblich", "ungefähr", "etwa",
+  "kaum", "fast", "ganz", "lieber", "besser", "einmal", "wieder", "zusammen", "allein", "oben", "unten", "vorne",
+  "hinten", "links", "rechts", "drinnen", "draußen", "langsam", "schnell", "laut", "lange", "eher",
+  "morgens", "mittags", "nachmittags", "abends", "nachts", "sonntags", "samstags", "ehrlich", "ernsthaft", "echt",
+  "wirklich", "mal", "nicht",
+  // auxiliaries and modals
+  "bin", "bist", "ist", "sind", "seid", "war", "warst", "waren", "wart", "sei",
+  "habe", "hab", "hast", "hat", "haben", "habt", "hatte", "hattest", "hatten", "hättest", "hätte",
+  "werde", "wirst", "wird", "werden", "werdet", "würde", "würdest", "würden",
+  "kann", "kannst", "können", "könnt", "könnte", "könntest", "könnten", "muss", "musst", "müssen", "müsst",
+  "darf", "darfst", "dürfen", "soll", "sollst", "sollen", "sollte", "will", "willst", "wollen", "wollt",
+  "möchte", "möchtest", "möchten", "mag", "magst",
+  // common verbs and imperatives that open sentences
+  "gibt", "gib", "geht", "gehst", "geh", "gehen", "kommt", "kommst", "komm", "weiß", "weißt", "lass", "mach", "machst",
+  "machen", "sag", "sagen", "nimm", "nehmen", "schreib", "warte", "schau", "bleib", "frag", "stell", "zieh", "erzähl",
+  "ruf", "fahr", "pass", "hör", "leg", "trink", "such", "probier", "bring", "vergiss", "sieh", "siehst", "kennst",
+  "findest", "denk", "denkst", "brauchst", "steht", "passt", "stimmt", "reicht", "liegt",
+  // interjections and replies
+  "ja", "nein", "doch", "bitte", "danke", "hallo", "ach", "oh", "na", "naja", "tja", "hm", "hmm", "hey", "ey", "puh",
+  "autsch", "ups", "okay", "genau", "klar", "gut", "schade", "richtig", "falsch", "egal", "guten", "gute",
+  // numbers
+  "eins", "zwei", "drei", "vier", "fünf", "sechs", "sieben", "acht", "neun", "zehn", "elf", "zwölf", "zwanzig",
 ]);
+
+/** The same openers as the lenient path sees them: umlauts and ß folded. */
+let foldedSentenceOpeners: Set<string> | null = null;
+
+function isLowercaseableOpener(word: string) {
+  if (LOWERCASEABLE_SENTENCE_OPENERS.has(word)) return true;
+  foldedSentenceOpeners ??= new Set([...LOWERCASEABLE_SENTENCE_OPENERS].map((opener) => normalizeGermanLenient(opener)));
+  return foldedSentenceOpeners.has(word);
+}
 
 function targetSentenceStarts(target: string, normalize: GermanCaseNormalizer) {
   const starts = new Set<number>();
@@ -425,7 +491,7 @@ function differsOnlyByOptionalSentenceStartCase(
     const targetLower = targetWord.toLocaleLowerCase("de-DE");
     if (
       !sentenceStarts.starts.has(index) ||
-      !LOWERCASEABLE_SENTENCE_OPENERS.has(targetLower) ||
+      !isLowercaseableOpener(targetLower) ||
       inputWord !== targetLower
     ) return false;
     sawDifference = true;

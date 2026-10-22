@@ -1494,7 +1494,10 @@ function Header({
   // Clearing one is about today's showing, not the kind — tomorrow's streak
   // note is a different notification and should come back. Muting is the
   // control for "never show me this kind".
-  const today = new Date().toISOString().slice(0, 10);
+  // The learner's own calendar day, not UTC's: in New Zealand the UTC date
+  // turns over at lunchtime, and everything cleared that morning came back.
+  const calendarNow = new Date();
+  const today = `${calendarNow.getFullYear()}-${String(calendarNow.getMonth() + 1).padStart(2, "0")}-${String(calendarNow.getDate()).padStart(2, "0")}`;
   const allNotifications: Array<{ id: string; kind: NotificationKind; title: string; body: string; view: PrototypeView }> = [
     { id: `reviews:${today}`, kind: "reviews", title: ui("Your review is ready"), body: ui("Revisit a few useful phrases while they are still fresh."), view: "practice" },
     { id: `games:${today}`, kind: "games", title: ui("Seven games are ready"), body: ui("Try a short spelling, recall, or vocabulary game."), view: "games" },

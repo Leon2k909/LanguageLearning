@@ -50,6 +50,8 @@ assert.ok(
 async function main() {
   const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "micheon-storage-check-"));
   process.env.APPDATA = scratch;
+  // And nothing in the workspace: the dev mirror there is somebody's real data.
+  process.env.MICHEON_WORKSPACE_STORAGE = "off";
 
   const { startServer } = await import(pathToFileURL(path.join(root, "server/index.js")).href);
   const server = await startServer(0);

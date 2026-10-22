@@ -8,8 +8,8 @@
 // the browser a plain MP3 — which plays identically in every browser and on mobile.
 //
 // This is free (no API key, no Azure account) but uses Microsoft's Read Aloud
-// endpoint unofficially, so treat it as best-effort: the client falls back to the
-// browser's built-in speechSynthesis if this server is unavailable.
+// endpoint unofficially, so treat it as best-effort. The client deliberately has
+// no fallback voice (see src/lib/voice.ts): a failed clip is retried, then skipped.
 
 import express from "express";
 import fs from "fs";
@@ -305,7 +305,10 @@ const workspaceFile = path.resolve(__dirname, "../shared-progress.json");
 // The packaged server lives inside app.asar, which is immutable. Trying to
 // mirror progress there failed and logged on every POST; the AppData copy is the
 // intended production store. Keep the workspace mirror only for local dev.
-const workspaceStorageEnabled = !/[\\/]app\.asar[\\/]/i.test(__dirname);
+// A check that starts this server on a scratch APPDATA sets the variable too:
+// otherwise its probe keys land in the developer's real workspace copy.
+const workspaceStorageEnabled = !/[\\/]app\.asar[\\/]/i.test(__dirname)
+  && process.env.MICHEON_WORKSPACE_STORAGE !== "off";
 let sharedStorageCache = null;
 
 function readSharedStorage() {
@@ -597,7 +600,7 @@ app.get("/api/tts", async (req, res) => {
     res.set("X-TTS-Pronunciation", pronunciationOverride);
     return res.send(buf);
   } catch (err) {
-    // Let the browser fall back to local speechSynthesis.
+    // The client retries once on a 502 and then passes over the clip.
     console.error("[tts] synth failed:", err?.message || err);
     return res.status(502).json({ error: "tts upstream failed" });
   }

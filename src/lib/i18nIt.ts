@@ -4551,4 +4551,6 @@ export const IT: Record<string, string> = {
   "Albanian tip: adjectives come after the noun and most bring a small article of their own — një djalë i mirë, një vajzë e mirë.": "Consiglio di albanese: l'aggettivo segue il nome e quasi tutti hanno un piccolo articolo proprio — një djalë i mirë, një vajzë e mirë.",
   "Albanian tip: “Ç'kemi?” is the everyday hello-how-are-you, and “Mirë, po ti?” the answer.": "Consiglio di albanese: “Ç'kemi?” è il ciao-come-va di tutti i giorni, e “Mirë, po ti?” la risposta.",
   "Albanian tip: there is no infinitive — I want to go is “dua të shkoj”, literally I want that I go.": "Consiglio di albanese: non c'è l'infinito — voglio andare si dice “dua të shkoj”, letteralmente voglio che io vada.",
+  "Check the capital letters: a sentence starts with one, and in German so does every noun, and Sie, Ihnen and Ihr when they mean you.": "Controlla le maiuscole: una frase inizia con la maiuscola, e in tedesco anche ogni sostantivo, così come Sie, Ihnen e Ihr nella forma di cortesia.",
+  "Check the capital letters.": "Controlla le maiuscole.",
 };

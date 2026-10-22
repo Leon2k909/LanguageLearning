@@ -4302,4 +4302,6 @@ export const EL: Record<string, string> = {
   "История, устройство и повседневная жизнь: как устроена страна.": "Ιστορία, οργάνωση του κράτους και καθημερινή ζωή: πώς είναι φτιαγμένη η χώρα.",
   "Learn Greek in the Greek alphabet, or in letters you already read.": "Μάθε ελληνικά με το ελληνικό αλφάβητο ή με γράμματα που ήδη διαβάζεις.",
   "Greek and Latin": "Ελληνικά και λατινικά",
+  "Check the capital letters: a sentence starts with one, and in German so does every noun, and Sie, Ihnen and Ihr when they mean you.": "Έλεγξε τα κεφαλαία: μια πρόταση ξεκινά με κεφαλαίο, και στα γερμανικά κάθε ουσιαστικό επίσης, όπως και τα Sie, Ihnen και Ihr στον πληθυντικό ευγενείας.",
+  "Check the capital letters.": "Έλεγξε τα κεφαλαία.",
 };
